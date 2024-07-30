@@ -1,0 +1,635 @@
+
+#include <iostream>
+
+#include <string>
+#include <vector>
+#include "sqlite3.h" 
+#include <stdio.h>
+using namespace std;
+
+#include <sstream>
+
+
+class Course {
+public:
+    int crn;
+    string title;
+    string department;
+    string time;
+    string days;
+    string semester;
+    int year;
+    int credits;
+
+    Course(int c, string t, string d, string tm, string dy, string sm, int y, int cr) :
+        crn(c), title(t), department(d), time(tm), days(dy), semester(sm), year(y), credits(cr) {}
+};
+
+class Roster {
+private:
+    string tablename; // unique table name for each roster
+public:
+    Roster(int c) {
+        tablename = "ROSTER_" + to_string(c); // can assign rosters such as roster1 -> rosterc wehre c is a unique roster denomination/ID number
+    }
+    string getTableName() const {
+        return tablename;
+    }
+
+    int crn;
+    string student_firstname;
+    string student_lastname;
+    int studentID;
+    string studentmajor;
+    int studentgraduation;
+
+    Roster(int c, string sfn, string sln, int id, string sm, int gd) :
+        crn(c), student_firstname(sfn), student_lastname(sln), studentID(id), studentmajor(sm), studentgraduation(gd) {}
+
+};
+
+class User {
+protected:
+    int id;
+    string username;
+public:
+
+    void printCourseList(sqlite3* DB);
+    void searchCourse(sqlite3* DB);
+};
+
+class Admin : public User {
+public:
+
+
+    void addCourse(sqlite3* DB, const Course& course);
+    void removeCourse(sqlite3* DB, int crn);
+};
+
+class Instructor : public User {
+public:
+
+    void assembleCourseRoster(sqlite3* DB, const Roster& roster);
+    void printRoster(sqlite3* DB, const Roster& roster);
+};
+
+
+class Student :
+    public User
+{
+public:
+
+    void addCourseToSchedule(sqlite3* DB, int crn, int ID);
+    void removeCourseFromSchedule(sqlite3* DB, int crn, int ID);
+
+};
+
+// Function declarations
+static int callback(void* data, int argc, char** argv, char** azColName);
+void createTable(sqlite3* DB, const string& sql);
+void executeSQL(sqlite3* DB, const string& sql, const string& successMessage);
+
+static int callback(void* data, int argc, char** argv, char** azColName) {
+    for (int i = 0; i < argc; i++) {
+        printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+    }
+    printf("\n");
+    return 0;
+}
+
+void createTable(sqlite3* DB, const string& sql) {
+    char* messageError;
+    int exit = sqlite3_exec(DB, sql.c_str(), NULL, 0, &messageError);
+    if (exit != SQLITE_OK) {
+        cerr << "Error Create Table: " << messageError << endl;
+        sqlite3_free(messageError);
+    }
+    else {
+        cout << "Table created Successfully" << endl;
+    }
+}
+
+void executeSQL(sqlite3* DB, const string& sql, const string& successMessage) {
+    char* messageError;
+    int exit = sqlite3_exec(DB, sql.c_str(), callback, 0, &messageError);
+    if (exit != SQLITE_OK) {
+        cerr << "SQL Error: " << messageError << endl;
+        sqlite3_free(messageError);
+    }
+    else {
+        cout << successMessage << endl;
+    }
+}
+
+// Admin functions
+void Admin::addCourse(sqlite3* DB, const Course& course) {
+    string sql = "INSERT INTO COURSE VALUES(" + to_string(course.crn) + ", '" + course.title + "', '" + course.department +
+        "', '" + course.time + "', '" + course.days + "', '" + course.semester + "', " + to_string(course.year) +
+        ", " + to_string(course.credits) + ");";
+    executeSQL(DB, sql, "Course added successfully.");
+}
+
+void Admin::removeCourse(sqlite3* DB, int crn) {
+    string sql = "DELETE FROM COURSE WHERE CRN = " + to_string(crn) + ";";
+    executeSQL(DB, sql, "Course removed successfully.");
+}
+
+// Instructor functions
+
+void Instructor::assembleCourseRoster(sqlite3* DB, const Roster& roster) {
+    // Generate unique table name for the roster
+    string tableName = roster.getTableName();
+
+    // Create SQL statement to create the table
+    string createTableSQL = "CREATE TABLE IF NOT EXISTS " + tableName + "("
+        "STUDENT_FIRSTNAME TEXT NOT NULL, "
+        "STUDENT_LASTNAME TEXT NOT NULL, "
+        "STUDENT_ID INTEGER NOT NULL, "
+        "STUDENT_MAJOR TEXT NOT NULL, "
+        "STUDENT_GRADUATION INTEGER NOT NULL, "
+        "PRIMARY KEY (STUDENT_ID));";
+
+    // Execute SQL statement to create the table
+    createTable(DB, createTableSQL);
+
+    // Insert into the created roster table
+    string sql = "INSERT INTO " + tableName + " VALUES('" + roster.student_firstname + "', '" + roster.student_lastname +
+        "', " + to_string(roster.studentID) + ", '" + roster.studentmajor + "', " + to_string(roster.studentgraduation) + ");";
+    executeSQL(DB, sql, "Student added to course roster successfully.");
+}
+
+void Instructor::printRoster(sqlite3* DB, const Roster& roster) {
+    // Generate unique table name for the roster
+    string tableName = roster.getTableName();
+
+    // Select statement to print roster from created table
+    string sql = "SELECT * FROM " + tableName + ";";
+    executeSQL(DB, sql, "Roster for course displayed successfully.");
+}
+
+
+
+
+// Student functions
+
+
+
+void User::searchCourse(sqlite3* DB) {
+    string sql = "SELECT * FROM COURSE WHERE 1=1";
+    string input;
+    cout << "Enter CRN (or leave blank): ";
+    cin.ignore();
+    getline(cin, input);
+    if (!input.empty()) {
+        sql += " AND CRN = " + input;
+    }
+    cout << "Enter Title (or leave blank): ";
+    getline(cin, input);
+    if (!input.empty()) {
+        sql += " AND TITLE LIKE '%" + input + "%'";
+    }
+    cout << "Enter Department (or leave blank): ";
+    getline(cin, input);
+    if (!input.empty()) {
+        sql += " AND DEPARTMENT LIKE '%" + input + "%'";
+    }
+    cout << "Enter Time (or leave blank): ";
+    getline(cin, input);
+    if (!input.empty()) {
+        sql += " AND TIME LIKE '%" + input + "%'";
+    }
+    cout << "Enter Days (or leave blank): ";
+    getline(cin, input);
+    if (!input.empty()) {
+        sql += " AND DAYS LIKE '%" + input + "%'";
+    }
+    cout << "Enter Semester (or leave blank): ";
+    getline(cin, input);
+    if (!input.empty()) {
+        sql += " AND SEMESTER LIKE '%" + input + "%'";
+    }
+    cout << "Enter Year (or leave blank): ";
+    getline(cin, input);
+    if (!input.empty()) {
+        sql += " AND YEAR = " + input;
+    }
+    cout << "Enter Credits (or leave blank): ";
+    getline(cin, input);
+    if (!input.empty()) {
+        sql += " AND CREDITS = " + input;
+    }
+
+    executeSQL(DB, sql, "Search results displayed successfully.");
+}
+
+void Student::addCourseToSchedule(sqlite3* DB, int crn, int ID) {
+    string sql = "INSERT INTO Enrollment (CRN, Title, Dept, Time, Days, Semester, Year, Credits, StudentID)"
+        "SELECT CRN, Title, Dept, Time, Days, Semester, Year, Credits, " + to_string(ID) + " "
+        "FROM Course WHERE CRN = " + to_string(crn) + ";";
+    executeSQL(DB, sql, "Course Added successfully.");
+}
+
+void Student::removeCourseFromSchedule(sqlite3* DB, int crn, int ID)
+{
+    string sql = "DELETE FROM Enrollment WHERE CRN = " + to_string(crn) + " AND StudentID = " + to_string(ID) + ";";
+    executeSQL(DB, sql, "Course removed successfully.");
+}
+
+void User::printCourseList(sqlite3* DB) {
+    string sql = "SELECT * FROM Course;";
+    executeSQL(DB, sql, "Course list displayed successfully.");
+}
+
+void createTables(sqlite3* db) {
+
+
+    // Create Course Table
+    string CourseTable = "CREATE TABLE IF NOT EXISTS Course("
+        "CRN INT PRIMARY KEY NOT NULL, "
+        "Title TEXT NOT NULL, "
+        "Dept TEXT NOT NULL, "
+        "Time TEXT NOT NULL, "
+        "Days TEXT NOT NULL, "
+        "Semester TEXT NOT NULL, "
+        "Year INT NOT NULL, "
+        "Credits INT NOT NULL);";
+
+    //Creat Enrollment Table
+    string EnrollmentTable = "CREATE TABLE IF NOT EXISTS Enrollment("
+        "CRN INT PRIMARY KEY NOT NULL, "
+        "Title TEXT NOT NULL, "
+        "Dept TEXT NOT NULL, "
+        "Time TEXT NOT NULL, "
+        "Days TEXT NOT NULL, "
+        "Semester TEXT NOT NULL, "
+        "Year INT NOT NULL, "
+        "Credits INT NOT NULL, "
+        "StudentID TEXT NOT NULL);";
+
+    // Create Student Table
+    string StudentTable = "CREATE TABLE IF NOT EXISTS Student("
+        "ID INT PRIMARY KEY NOT NULL, "
+        "Name TEXT NOT NULL, "
+        "Surname TEXT NOT NULL, "
+        "Gradyear INT NOT NULL, "
+        "Major TEXT NOT NULL, "
+        "Email TEXT NOT NULL);";
+
+    // Create Instructor Table
+    string InstructorTable = "CREATE TABLE IF NOT EXISTS Instructor("
+        "ID TEXT PRIMARY KEY NOT NULL, "
+        "Name TEXT NOT NULL, "
+        "Surname TEXT NOT NULL, "
+        "Title TEXT NOT NULL, "
+        "HireYear INT NOT NULL, "
+        "Dept TEXT NOT NULL, "
+        "Email TEXT NOT NULL);";
+
+    // Create Admin Table
+    string AdminTable = "CREATE TABLE IF NOT EXISTS Admin("
+        "ID TEXT PRIMARY KEY NOT NULL, "
+        "Name TEXT NOT NULL, "
+        "Surname TEXT NOT NULL, "
+        "Title TEXT NOT NULL, "
+        "Office TEXT NOT NULL, "
+        "Email TEXT NOT NULL);";
+
+    createTable(db, CourseTable);
+    createTable(db, EnrollmentTable);
+    createTable(db, StudentTable);
+    createTable(db, InstructorTable);
+    createTable(db, AdminTable);
+}
+
+
+
+
+void addCourses(sqlite3* DB)
+{
+    // Add 5 courses
+    string standard_Courses[] = {
+        "INSERT INTO Course (CRN, Title, Dept, Time, Days, Semester, Year, Credits) VALUES (1001, 'Introduction to Computer Science', 'Computer Science', '09:00-10:15', 'MW', 'Fall', 2024, 3);",
+        "INSERT INTO Course (CRN, Title, Dept, Time, Days, Semester, Year, Credits) VALUES (1002, 'Data Structures', 'Computer Science', '10:30-11:45', 'TR', 'Fall', 2024, 3);",
+        "INSERT INTO Course (CRN, Title, Dept, Time, Days, Semester, Year, Credits) VALUES (1003, 'Biology 101', 'Biology', '08:00-09:15', 'MW', 'Fall', 2024, 4);",
+        "INSERT INTO Course (CRN, Title, Dept, Time, Days, Semester, Year, Credits) VALUES (1004, 'Organic Chemistry', 'Chemistry', '11:00-12:15', 'TR', 'Fall', 2024, 4);",
+        "INSERT INTO Course (CRN, Title, Dept, Time, Days, Semester, Year, Credits) VALUES (1005, 'Calculus I', 'Mathematics', '13:00-14:15', 'MW', 'Fall', 2024, 4);"
+    };
+    for (const auto& sql : standard_Courses) {
+        executeSQL(DB, sql, "Standard Courses Added Successfully.");
+    }
+}
+
+void addStudents(sqlite3* db)
+{
+    // Add 5 courses
+    string dummy_Students[] = {
+        "INSERT INTO Student (ID, Name, Surname, Gradyear, Major, Email) VALUES (12, 'Caleb', 'Buon', 2025, 'Computer Engineering', 'buonc1');",
+        "INSERT INTO Student (ID, Name, Surname, Gradyear, Major, Email) VALUES (34, 'Nick', 'Lima', 2025, 'Electrical Engineering', 'liman2');",
+        "INSERT INTO Student (ID, Name, Surname, Gradyear, Major, Email) VALUES (56, 'Saba', 'Kochadze', 2025, 'Computer Science', 'kochadzes3');",
+        "INSERT INTO Student (ID, Name, Surname, Gradyear, Major, Email) VALUES (78, 'Bad', 'Guy', 2025, 'Marine Biology', 'guyb4')",
+        "INSERT INTO Student (ID, Name, Surname, Gradyear, Major, Email) VALUES (90, 'Good', 'Dude', 2025, 'Architecture', 'dudeg5');"
+    };
+    for (const auto& sql : dummy_Students) {
+        executeSQL(db, sql, "Dummy Students Added Successfully.");
+    }
+}
+
+
+int login(string in_email, string in_password) {
+    string user_emailarray[3] = { "kochadzes@wit.edu", "1", "admin@wit.edu" };
+    string user_passarray[3] = { "apple1", "1", "dog1" };
+
+    for (int i = 0; i < 3; i++) {
+        if (in_email == user_emailarray[i]) {
+            if (in_password == user_passarray[i]) {
+                if (i == 0) {
+                    return 3; // Student
+                }
+                else if (i == 1) {
+                    return 2; // Instructor
+                }
+                else if (i == 2) {
+                    return 1; // Admin
+                }
+            }
+            return 9; // Password incorrect
+        }
+    }
+    return 4; // Email not found
+}
+
+
+// Main function
+int main(int argc, char** argv) {
+    sqlite3* DB;
+    int exit = sqlite3_open("assignment4.db", &DB);
+    if (exit) {
+        cerr << "Cannot open database: " << sqlite3_errmsg(DB) << endl;
+        return 1;
+    }
+    //   createTables(DB);
+    //   addCourses(DB);
+      // addStudents(DB);
+       // Create tables if they don't exist
+    //string createCourseTable = "CREATE TABLE IF NOT EXISTS COURSE("
+    //    "CRN INTEGER PRIMARY KEY, "
+    //    "TITLE TEXT NOT NULL, "
+    //    "DEPARTMENT TEXT NOT NULL, "
+    //    "TIME TEXT NOT NULL, "
+    //    "DAYS TEXT NOT NULL, "
+    //    "SEMESTER TEXT NOT NULL, "
+    //    "YEAR INTEGER NOT NULL, "
+    //    "CREDITS INTEGER NOT NULL);";
+    //createTable(DB, createCourseTable);
+
+    createTables(DB);
+
+    addCourses(DB); // load mock data
+    addStudents(DB);
+    // Menu-driven interface
+
+    cout << "test login\nstudent email: kochadzes@wit.edu\nPassword: apple1\nInstructor email: douglasd@wit.edu\nPassword: bsce\nAdmin email: admin@wit.edu\nPassword: dog1\n" << endl;
+
+
+    string user_email;
+    string user_password;
+
+    cout << "Enter 4 to Exit" << endl;
+
+
+    cout << "Login\n";
+    cout << "Email: " << endl;
+    cin >> user_email;
+    if (user_email == "4") {
+        return 0;
+    }
+    cout << "Password: " << endl;
+    cin >> user_password;
+    
+    int choice1 = 4;
+    choice1 = login(user_email, user_password);
+    while (true) {
+
+        int ID;
+
+
+        if (choice1 == 9) {
+            cout << "incorrect Login\nTry Again" << endl;
+
+            cout << "Email: " << endl;
+            cin >> user_email;
+            if (user_email == "4") {
+                return 0;
+            }
+            cout << "Password: " << endl;
+            cin >> user_password;
+
+            choice1 = login(user_email, user_password);
+        }
+
+        if (choice1 == 4) {
+            return 0;
+        }
+
+        int crn, year, credits;
+        string title, department, time, days, semester;
+
+        switch (choice1) {
+        case 1: {
+            int Achoose;
+            while (true) {
+                cout << "\nAdmin Menu:\n";
+                cout << "1. Add Course\n";
+                cout << "2. Remove Course\n";
+                cout << "3. Print Course List\n";
+                cout << "4. Search for a course based on parameters\n";
+                cout << "5. Logout\n";
+                cout << "Enter your choice: ";
+                cin >> Achoose;
+                
+
+                Admin admin;
+                switch (Achoose) {
+                case 1: {
+                    cout << "Enter course details (CRN, Title, Department, Time, Days, Semester, Year, Credits):\nEnter CRN: ";
+                    cin >> crn; cout << "Enter Title:"; cin >> title; cout << "Enter Dept:"; cin >> department;  cout << "Enter Time: ";
+                    cin >> time; cout << "Enter Days:"; cin >> days; cout << "Enter Semester:"; cin >> semester; cout << "Enter Year:"; cin >> year; cout << "Enter Credits:"; cin >> credits;
+                    Course course(crn, title, department, time, days, semester, year, credits);
+                    admin.addCourse(DB, course);
+                    break;
+                }
+                case 2: {
+                    admin.printCourseList(DB);
+                    cout << "Enter CRN of the course to remove: ";
+                    cin >> crn;
+                    admin.removeCourse(DB, crn);
+                    break;
+                }
+                case 3: {
+                    admin.printCourseList(DB);
+                    break;
+                }
+                case 4: {
+                    admin.searchCourse(DB);
+                    break;
+                }
+                case 5: {
+                      cout << "Login\nEmail: " << endl;
+                      cin >> user_email;
+                      if (user_email == "4") {
+                          return 0;
+                      }
+                      cout << "Password: " << endl;
+                      cin >> user_password;
+
+                      choice1 = login(user_email, user_password);
+                      break;
+                }
+                default:
+                    cout << "Invalid choice, try again." << endl;
+                }
+            }
+            break;
+        }
+        case 2: {
+            int Tchoose;
+            while (true) {
+                cout << "\nInstructor Menu:\n";
+                cout << "1. Assemble Course Roster\n";
+                cout << "2. Print Course Roster\n";
+                cout << "3. Print Course List\n";
+                cout << "4. Search for a course based on parameters\n";
+                cout << "5. Logout\n";
+                cout << "Enter your choice: ";
+                cin >> Tchoose;
+                
+
+                Instructor instructor;
+                switch (Tchoose) {
+                case 1: {
+                    int studentID, studentgraduation;
+                    string student_firstname, student_lastname, studentmajor;
+                    cout << "Enter student details (CRN, Firstname, Lastname, Student ID, Major, Graduation Year):\n";
+                    cout << "Enter CRN" << endl;
+                    cin >> crn;
+                    cout << "Student First Name: " << endl;
+                    cin >> student_firstname;
+                    cout << "Student Last Name: " << endl;
+                    cin >> student_lastname;
+                    cout << "Student ID: " << endl;
+                    cin >> studentID;
+                    cout << "Student Major: " << endl;
+                    cin >> studentmajor;
+                    cout << "Student Graduation year: " << endl;
+                    cin >> studentgraduation;
+
+                    Roster roster(crn);
+                    roster.student_firstname = student_firstname;
+                    roster.student_lastname = student_lastname;
+                    roster.studentID = studentID;
+                    roster.studentmajor = studentmajor;
+                    roster.studentgraduation = studentgraduation;
+
+                    instructor.assembleCourseRoster(DB, roster);
+                    break;
+                }
+                case 2: {
+                    cout << "Enter CRN of the course to print roster: ";
+                    cin >> crn;
+
+                    Roster roster(crn);
+                    instructor.printRoster(DB, roster);
+                    break;
+                }
+                case 3: {
+                    instructor.printCourseList(DB);
+                    break;
+                }
+                case 4: {
+                    instructor.searchCourse(DB);
+                    break;
+                }
+                case 5: {
+                    cout << "Login\nEmail: " << endl;
+                    cin >> user_email;
+                    if (user_email == "4") {
+                        return 0;
+                    }
+                    cout << "Password: " << endl;
+                    cin >> user_password;
+
+                    choice1 = login(user_email, user_password);
+                    break;
+                }
+                default:
+                    cout << "Invalid choice, try again." << endl;
+                }
+            }
+            break;
+        }
+        case 3: {
+            int Schoose;
+            while (true) {
+                cout << "\nStudent Menu:\n";
+                cout << "1. Print Course\n";
+                cout << "2. Search for a course\n";
+                cout << "3. Add Course to Schedule\n";
+                cout << "4. Remove Course from Schedule\n";
+                cout << "5. Logout\n";
+                cout << "student your choice: ";
+                cin >> Schoose;
+
+                Student student;
+                switch (Schoose) {
+                case 1: {
+
+                    student.printCourseList(DB);
+
+                    break;
+                }
+                case 2: {
+                    student.searchCourse(DB);
+
+                    break;
+                }
+                case 3: {
+                    cout << "Enter CRN of the course to add to schedule: ";
+                    cin >> crn;
+                    cout << "What is your ID: ";
+                    cin >> ID;
+                    student.addCourseToSchedule(DB, crn, ID);
+                    break;
+                }
+                case 4: {
+                    cout << "Enter CRN of the course to remove from schedule: ";
+                    cin >> crn;
+                    cout << "What is your ID: ";
+                    cin >> ID;
+                    student.removeCourseFromSchedule(DB, crn, ID);
+                    break;
+                }
+                case 5: {
+                    cout << "Login\nEmail: " << endl;
+                    cin >> user_email;
+                    if (user_email == "4") {
+                        return 0;
+                    }
+                    cout << "Password: " << endl;
+                    cin >> user_password;
+
+                    choice1 = login(user_email, user_password);
+                    break;
+                }
+                default:
+                    cout << "Invalid choice, try again." << endl;
+                }
+            }
+            break;
+        }
+
+              sqlite3_close(DB);
+              return 0;
+        }
+
+    }
+}
